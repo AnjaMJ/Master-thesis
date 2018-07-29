@@ -1,0 +1,69 @@
+# Pipeline for testing for polygenic adaptation, by Fernando Racimo, edits by Anja MJ
+
+# FILE DEFINITIONS
+# Define input and output-folders
+DATAFOL="/selection_data"
+OUTPUTFOL="/selection_output"
+
+# Population panel file
+PANELFILE="/imputed_vcf.panel"
+
+#Population-file in acf-format
+POPFILE=$DATAFOL/"popfile.acf" 
+
+# Location of glactools software
+GLACTOOLS="/software/glactoolsMASTER/glactools"
+
+# Scripts folder
+PIPELINEFOL="/scripts"
+
+# Phenotype to test
+# Example: Standing height from the UK Biobank
+PHENONAME="HEIGHT"
+GWASFILE="/UKBiobank/Neale_sstats/50_EUR_single.tsv.gz"
+BLOCKFILE="/UKBiobank/Neale_sstats/50.assoc.fgwas.EUR.output.segbfs.gz"
+
+
+# Output file names
+RAWGWASFREQ=$DATAFOL/"gwasfreqs_"$PHENONAME"_byPPA.tsv"
+SELGWASFREQ=$DATAFOL/"gwasfreqs_candidates_"$PHENONAME"_byPPA.tsv"
+NEUTGWASFREQ=$DATAFOL/"gwasfreqs_neutral_"$PHENONAME"_byPPA.tsv"
+QXREPORT=$OUTPUTFOL/"QX_report_"$PHENONAME".txt"
+GENSCORES=$OUTPUTFOL/"Genscores_"$PHENONAME".txt"
+
+
+# UK BIOBANK TRAIT + POPULATION FILE PREPARATION
+
+# Convert acf to freq+UKB_GWAS file, grouped by panel -  do this for every phenotype you try
+echo 'Convert to freq-file'
+python $PIPELINEFOL/acf2ukbfreq_byPPA_AMJedit.py -a $POPFILE.gz -g $GWASFILE -o $RAWGWASFREQ
+cat <(head -1 $RAWGWASFREQ) <(tail -n+2 $RAWGWASFREQ | sort -k1,1 -k2,2g) | bgzip -c > $RAWGWASFREQ.gz
+tabix -s 1 -b 2 -e 2 $RAWGWASFREQ.gz
+rm $RAWGWASFREQ
+
+
+# Extract best SNP per block - minimum block-PPA is options (SNPs in blocks with higher PPA are better association candidates)
+echo 'Extract trait SNPs'
+python $PIPELINEFOL/partitionUKB_byPPA.py -i $RAWGWASFREQ.gz -l $BLOCKFILE -o $SELGWASFREQ -p 0.9
+
+
+# Extract "neutral" non-associated SNPs to build F-matrix - sample every 20th SNP - p cutoff is maximum PPA allowed
+echo 'Extract neutral SNPs'
+python $PIPELINEFOL/extractneutral_byPPA.py -i $RAWGWASFREQ.gz -s 20 -p 0.00001 -o $NEUTGWASFREQ
+
+
+
+# CALCULATION OF QX-STATISTICS
+
+# Populations to study (comma-separated) - you can include as many as you want
+POPS="pops_to_search.txt"
+
+# Population for frequency-matching procedure (best to use a European population, given that GWAS was performed on Europeans)
+MATCHPOP="CEU"
+
+
+# Calculate Q_X statistic with chi-squared P-value, sign-randomized P-value and frequency-matched P-value 
+echo 'Qx-statistics'
+Rscript $PIPELINEFOL/CalcQX_edit4multiple.R -w $SELGWASFREQ -e $NEUTGWASFREQ -p $POPS -o $QXREPORT -s $GENSCORES -n 1000 -m $MATCHPOP -j 10000
+
+
