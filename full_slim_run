@@ -1,0 +1,110 @@
+# Path to program
+slim="/home/anja/SLiM/bin/slim"
+# Path to data dir
+DAT="/home/anja/Desktop/thesis/simulations/EDIT_data"
+
+####      --------  Values of this simulation --------- #############
+
+sim_name="Multi.eff_w(0.90,0.10)"
+
+ini_text="
+// QTL - multiple	\n
+eff_sd = \"sd = sample(c(0.01, 0.05), size=1, weights = c(0.90, 0.10)); rnorm(1, 0, sd);\"; \n
+initializeMutationType(\"m2\", 0.5, \"s\", eff_sd); \n
+
+// Heritability:	\n
+defineConstant(\"h2\", 0.1);	// default 0.1	\n
+
+// Fitness curve:	\n
+defineConstant(\"f_dist\", 2);	//  default 2	\n\n
+"
+
+
+##### ---------------------------------------------------------- ########
+
+
+echo -e $ini_text > temp_head
+cat temp_head slim_basic_script > temp_script1
+
+###### Optimum loop:
+for i in {1..5}; 
+do
+## Edit sim_name
+sim_name_loop=$sim_name'_opt'$i
+
+## Change optimum values (1-5)
+opt_changes="
+initialize() {	\n
+// p2 optimum	\n
+defineConstant(\"p3_opt\", $i);	\n
+"
+echo -e $opt_changes > temp_opt
+cat temp_opt temp_script1 > temp_script2
+
+### Run 10 replications
+for j in {1..10};
+do
+sed -i -e 's/NEWNAME/'$sim_name_loop'_rep'$j'.txt/g' temp_script2;
+$slim temp_script2;
+sed -i -e 's/'$sim_name_loop'_rep'$j'.txt/NEWNAME/g' temp_script2;
+done
+done
+
+rm temp*
+
+# Move all to simulation-folder
+mkdir $DAT/$sim_name
+mv $DAT/*.txt $DAT/$sim_name
+
+
+######### Calculate QX and maf
+### QX
+
+mkdir $DAT/$sim_name'_qx'
+
+for i in {1..5};
+do
+## Edit sim_name
+sim_name_loop=$sim_name'_opt'$i
+### Calculate qx
+for j in {1..10};
+do
+rep=$sim_name_loop'_rep'$j
+
+Rscript CalcQX_sim.R -w $DAT/$sim_name/$rep.txt -e $DAT/$sim_name/NEUT_$rep.txt -s $DAT/$sim_name'_qx'/genscore_$rep -o $DAT/$sim_name'_qx'/qx_$rep;
+
+done
+done
+
+
+### MAF 
+
+
+for k in {1..5};
+do
+sim_name_loop=$sim_name'_opt'$k
+
+for pop in {1..2};
+do
+mkdir $DAT/$sim_name'_maf_p'$pop;
+
+for m in {0.01,0.05,0.1};
+do
+
+for i in {1..10};
+do
+rep=$sim_name_loop'_rep'$i
+G=genscore_maf$m
+Q=qx_maf$m
+E='_p'$pop'_'$sim_name_loop'_rep'$i
+
+echo $G$E
+echo $Q$E
+
+Rscript CalcQX_sim_MAF.R -w $DAT/$sim_name/$rep.txt -e $DAT/$sim_name/NEUT_$rep.txt -o $DAT/$sim_name'_maf_p'$pop/$Q$E -s $DAT/$sim_name'_maf_p'$pop/$G$E -m $m -p $pop;
+
+done
+done
+done
+done
+

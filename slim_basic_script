@@ -1,0 +1,157 @@
+// --------------------------Unchanged------------------------------------------//
+// Out-name-
+defineConstant("outName", 'NEWNAME');
+// Ancient-optimum
+defineConstant("Anc_opt", 0); // default 0
+// p1 optimum
+defineConstant("p2_opt", 0);  // default 0
+// -------
+
+
+initializeMutationRate(1e-7);
+// neutral
+initializeMutationType("m1", 0.5, "f", 0.0);
+
+m2.convertToSubstitution = F;
+
+initializeGenomicElementType("g1", c(m1, m2), c(1, 0.1));
+initializeGenomicElement(g1, 0, ((1e6)*2)-1);
+
+// Number of splits / chromosomes
+defineConstant("S", 2);
+// Chromosome sizes
+defineConstant("BP", 1000000);
+// Split-points
+chrom_end = seq(1, BP*S, BP);
+// Split-chrom end points:
+ends = (repEach(chrom_end-2 + BP, 2) + rep(c(0,1), S))[0:(S*2-2)];
+//rates:
+rates = c(rep(c(1e-7, 0.5), S-1), 1e-7);
+initializeRecombinationRate(rates, ends);
+//initializeRecombinationRate(1e-8);
+}
+1 late() {
+sim.addSubpop("p1", 1000);
+}
+
+1:9999 late() {
+// construct phenotypes from the additive effects of QTLs
+inds = sim.subpopulations.individuals;
+inds.tagF = inds.sumOfMutationsOfType(m2);
+
+// add in environmental variance, according to the target heritability
+V_A = sd(inds.tagF)^2;
+V_E = (V_A - h2 * V_A) / h2;
+// from h2 == V_A / (V_A + V_E)
+env = rnorm(size(inds), 0.0, sqrt(V_E));
+// set phenotypes
+inds.tagF = inds.tagF + env;
+}
+
+10000 {
+// Split
+cat('\n ---------Split------------ \n');
+cat('\n\nMean-phenotype: \n');
+meanPhenotype = mean(p1.individuals.tagF);
+cat(format("%.2f", meanPhenotype));
+cat('\n --------------------- \n');
+
+sim.addSubpopSplit("p2", 1000, p1);
+sim.addSubpopSplit("p3", 1000, p1);
+p1.setSubpopulationSize(0);
+// for now, no migration
+//p2.setMigrationRates(c(p3), c(15e-5));
+//p3.setMigrationRates(c(p2), c(15e-5));
+}
+
+10001: late() {
+inds = sim.subpopulations.individuals;
+inds.tagF = inds.sumOfMutationsOfType(m2);
+
+// add in environmental variance, according to the target heritability
+V_A = sd(inds.tagF)^2;
+V_E = (V_A - h2 * V_A) / h2;
+// from h2 == V_A / (V_A + V_E)
+env = rnorm(size(inds), 0.0, sqrt(V_E));
+// set phenotypes
+inds.tagF = inds.tagF + env;
+}
+
+
+fitness(m2) {
+return 1.0;
+// QTLs are neutral; fitness effects are handled below
+}
+
+fitness(NULL, p1) {
+return 1.0 + dnorm(Anc_opt - individual.tagF, 0.0, f_dist); // optimum Anc_opt
+}
+
+fitness(NULL, p2) {
+return 1.0 + dnorm((p2_opt - individual.tagF), 0.0, f_dist); // optimum p2_opt
+}
+
+fitness(NULL, p3) {
+return 1.0 + dnorm((p3_opt - individual.tagF), 0.0, f_dist); // optimum p3_opt
+}
+
+
+1: late() {
+if (sim.generation == 1)
+cat("Generation:\n");
+cat(sim.generation);
+// Run until end
+if (sim.generation < 20000)
+{
+cat(", ");
+return;
+}
+}
+
+// 200 generations after split
+10200 late() {
+cat('\n\n ----------------------\n\n');
+cat("Mean phenotype, p2: \t Mean phenotype, p3: \t \n");
+meanPhenotype = mean(p2.individuals.tagF);
+meanPhenotype2 = mean(p3.individuals.tagF);
+cat(format("%.2f", meanPhenotype)+'\t\t\t'+format("%.2f", meanPhenotype2));
+cat('\n\n');
+
+// Neutral muts:
+neut = sim.mutationsOfType(m1);
+p1_neut = sim.mutationFrequencies(p2, neut);
+p2_neut = sim.mutationFrequencies(p3, neut);
+id_neut = neut.id;
+s_neut = neut.selectionCoeff;
+pos_neut = neut.position;
+
+neut_lines = paste(c('NeutID', 'Pos', 'Eff', 'P1_freq', 'P2_freq'), '\t');
+for (i in c(0:(size(id_neut)-1)))
+{
+line= paste(c(id_neut[i], pos_neut[i], s_neut[i], p1_neut[i], p2_neut[i]), '\t');
+neut_lines = c(neut_lines, line);
+}
+writeFile(paste(c("/home/anja/Desktop/thesis/simulations/EDIT_data/NEUT_",outName), ""), neut_lines);
+
+
+// write all output to file
+qtls = sim.mutationsOfType(m2);
+p1_freq = sim.mutationFrequencies(p2, qtls);
+p2_freq = sim.mutationFrequencies(p3, qtls);
+id = qtls.id;
+s = qtls.selectionCoeff;
+p = qtls.position;
+o = qtls.originGeneration;
+
+all_lines = paste(c('MutID', 'Pos', 'Eff', 'P1_freq', 'P2_freq', 'OriGen'), '\t');
+for (i in c(0:(size(id)-1)))
+{
+line= paste(c(id[i], p[i], s[i], p1_freq[i], p2_freq[i], o[i]), '\t');
+all_lines = c(all_lines, line);
+}
+
+writeFile(paste(c("/home/anja/Desktop/thesis/simulations/EDIT_data/",outName), ""), all_lines);
+
+// 2 chrome time: 5 min.
+sim.simulationFinished();
+}
